@@ -1,0 +1,499 @@
+---
+name: frontend-design
+description: Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.
+globs: ["**/*.tsx", "**/*.jsx", "components/**/*", "app/**/*", "ui/**/*"]
+alwaysApply: false
+license: Complete terms in LICENSE.txt
+This skill governs the creation of distinctive, production-grade frontend interfaces. It enforces rigorous UX decision-making, precise interaction design, and visual intentionality — actively countering generic, template-like "AI slop" outputs. All generated code must be production-ready, fully functional, visually memorable, and designed for real human use.
+---
+1. ACTIVE BASELINE CONFIGURATION
+These three dials are global variables that drive all subsequent logic. They are defaults only; always override them based on explicit user instructions.
+Dial	Default	Scale
+`DESIGN\\\_VARIANCE`	8	1 = Perfect Symmetry → 10 = Artsy Chaos
+`MOTION\\\_INTENSITY`	6	1 = Static → 10 = Cinematic / Magic Physics
+`VISUAL\\\_DENSITY`	4	1 = Art Gallery / Airy → 10 = Cockpit / Dense
+---
+<design_thinking>
+2. DESIGN THINKING PROTOCOL
+Before writing a single line of code, reason through these questions explicitly:
+Problem & User
+What problem does this interface solve? For whom?
+What is the user's primary goal in ≤10 seconds of use?
+What are the failure modes if the UX is unclear?
+Tone & Aesthetic Direction
+Commit to a bold, specific aesthetic from the start. Avoid hedged, "safe" designs. Examples of distinct tonal directions:
+Brutally minimal / Swiss-grid precision
+Maximalist editorial / magazine chaos
+Retro-futuristic / terminal-inspired
+Organic / natural / soft-material
+Luxury / refined / high-fashion
+Playful / toy-like / tactile
+Industrial / utilitarian / data-dense
+Dark brutalist / raw / deconstructed
+Execute your chosen direction with full commitment. Timid half-measures produce mediocre output. Both maximalism and minimalism succeed — what fails is inconsistency.
+Differentiation Test
+Before finalizing the design direction, ask: What is the one thing a user will remember about this interface? If the answer is "nothing specific," restart.
+Accessibility Baseline (Non-Negotiable)
+Every interface must meet these minimums:
+All interactive elements have visible focus states (`:focus-visible` outlines, never `outline: none` without a custom replacement)
+Color contrast ≥ 4.5:1 for body text, ≥ 3:1 for large text and UI components
+Interactive tap targets ≥ 44×44px on touch devices
+Semantic HTML: `<button>` for actions, `<a>` for navigation, headings in logical order (`h1` → `h2` → `h3`)
+All images have descriptive `alt` text; decorative images use `alt=""`
+Form inputs always have associated `<label>` elements — not just placeholder text
+</design_thinking>
+3. ARCHITECTURE & TECHNICAL CONVENTIONS
+Framework & Structure
+Default to React or Next.js with Server Components (RSC).
+Server Components handle static structure and data fetching. Client Components handle all interactivity, animations, and browser APIs.
+INTERACTIVITY ISOLATION RULE: Any component using hooks, event listeners, or animations must be extracted as a leaf Client Component (`'use client'` at the very top). Never contaminate Server Component trees.
+Dependency Verification (Mandatory)
+Before importing any third-party library, check `package.json`. If it is missing, output the install command (`npm install package-name`) before the code. Never assume a package exists.
+Styling
+Tailwind CSS (v3 or v4 — check `package.json` first) for ≥90% of styling.
+TAILWIND VERSION LOCK: Do not use v4 syntax in v3 projects (e.g., no `@tailwindcss/postcss` in v3).
+For v4: do not use `tailwindcss` plugin in `postcss.config.js`. Use `@tailwindcss/postcss` or the Vite plugin.
+CSS custom properties for semantic design tokens (colors, radii, spacing) over hardcoded values.
+CSS variables follow a semantic naming convention: `--color-surface`, `--color-text-primary`, `--radius-card`, not `--blue-500`.
+Layout Rules
+Use CSS Grid over flexbox math. Never: `w-\\\[calc(33%-1rem)]`. Always: `grid grid-cols-1 md:grid-cols-3 gap-6`.
+Constrain page layouts: `max-w-\\\[1400px] mx-auto` or `max-w-7xl`.
+VIEWPORT STABILITY: Never `h-screen` for full-height heroes. Always `min-h-\\\[100dvh]` to prevent iOS Safari jump.
+Asymmetric layouts above `md:` breakpoint must collapse to strict single-column (`w-full px-4`) below 768px — no horizontal overflow.
+Icons
+Use exclusively `@phosphor-icons/react` or `@radix-ui/react-icons` (check which is installed).
+Standardize `weight` / `strokeWidth` globally per project (e.g., always `1.5` or always `2.0`).
+ANTI-EMOJI RULE (Critical): Emojis are permanently banned in all generated code, markup, alt text, and content. Replace every emoji with a Phosphor/Radix icon or a clean SVG primitive.
+State Management
+Local `useState` / `useReducer` for isolated component state.
+Global state (Zustand, Jotai, Context) only when prop-drilling exceeds 2 levels.
+Never use `useState` for continuous animations or magnetic hover effects — use Framer Motion's `useMotionValue` / `useTransform` exclusively.
+---
+4. UX PATTERNS & INTERACTION DESIGN
+This section defines precise interaction design rules. These govern how an interface behaves — not just how it looks.
+4.1 Information Architecture
+Progressive Disclosure
+Surface only what the user needs at each step. Reveal complexity on demand:
+Primary actions visible immediately; secondary actions behind disclosure (dropdown, accordion, "More options")
+Destructive or irreversible actions always require an explicit confirmation step (dialog, inline confirm, or type-to-confirm)
+Never display more than 7 ± 2 items in a navigation menu, dropdown, or list without grouping or search
+Visual Hierarchy (F-Pattern & Z-Pattern Awareness)
+Hero sections: most important information top-left for left-to-right scanning
+Use size, weight, and color contrast (not just size alone) to establish hierarchy
+A page should have exactly one primary CTA. Supporting actions are secondary (lower contrast, smaller, outlined)
+Avoid "hierarchy collapse": when everything is bold, nothing is
+Proximity & Grouping (Gestalt)
+Related controls must share a visual container, spacing unit, or divider
+Unrelated controls need clear separation (whitespace, border, or background shift)
+Form fields related to the same concept should be grouped with a shared label group, not scattered
+4.2 Navigation Patterns
+Primary Navigation
+Highlight the current route with both a visual indicator (background, underline, or active dot) and `aria-current="page"` on the active link
+Mobile nav: hamburger menus must have an animated open/close icon transition and trap focus within the drawer when open
+Sticky headers must not exceed 64px height on mobile; use `backdrop-blur` + semi-transparent background for layered depth
+Breadcrumbs
+Required for pages 3+ levels deep
+Use `>` or `/` separator, not `→` (arrow implies action/navigation forward, not hierarchy)
+Last breadcrumb item represents current page and is non-interactive
+Pagination vs. Infinite Scroll
+Use pagination when users need to return to a specific position (search results, tables, data lists)
+Use infinite scroll only for content-consumption contexts (social feeds, image galleries)
+Infinite scroll must include a "Back to top" affordance after 3+ loads
+4.3 Form Design (High-Precision Rules)
+Forms are the highest-stakes UX surface. Every detail matters.
+Label Positioning
+Labels sit above inputs, always. Placeholder-only labeling is an accessibility failure
+Use `for`/`id` pairing on every `<label>` / `<input>` — not wrapping label as a workaround
+Floating labels (animated from inside the input) are acceptable only when space is critically constrained
+Input Anatomy
+```
+\\\[Label text]              ← Always above, 12px gap below
+\\\[Input field]             ← 44px min height
+\\\[Helper text]             ← Optional, subdued, 4px gap below input
+\\\[Error message]           ← Red, with error icon, replaces helper text on error
+```
+Validation Timing
+Never validate on every keystroke for format errors (email, phone) — validate `onBlur` or on submit
+Exception: Character count limits, password strength meters, and "username available" checks may validate in real time since they provide progressive feedback
+On submit, scroll to and focus the first invalid field
+Error messages must name the problem specifically: "Email must include '@'" not "Invalid input"
+Input States (All Must Be Implemented)
+Every input must have distinct visual treatment for:
+Default (resting)
+Focused (ring/border highlight, `focus-visible` only — not `:focus`)
+Filled (user has entered a value)
+Error (red border + error message + icon)
+Disabled (reduced opacity, `cursor-not-allowed`, `aria-disabled`)
+Read-only (visually distinct from disabled; user can still copy text)
+Loading/pending (inline spinner, field not editable)
+Multi-Step Forms
+Show a progress indicator (step dots, step counter "Step 2 of 4", or linear bar)
+Persist data across steps — never lose a user's input on "Back"
+Validate only the current step before advancing, not the entire form
+Buttons in Forms
+Primary submit button is right-aligned (Western reading convention for form completion)
+"Cancel" or "Back" is left-aligned or text-only (lower visual weight)
+Disable submit button while submission is in progress; show inline loading state on the button itself
+4.4 Feedback & System Status
+Following Nielsen's heuristic: the system must always keep users informed about what is going on.
+Loading States
+Skeleton loaders must match the exact layout shape of the content they replace (never generic spinners for content areas)
+Skeleton shimmer direction: left-to-right, 1.5s duration, `animation-timing-function: ease-in-out`
+Full-page loading: a thin progress bar at the top edge (e.g., NProgress pattern), not a centered spinner
+Button loading state: replace label with inline spinner + "Loading…" text; maintain button width to prevent layout shift
+Empty States
+Every list, table, or data view must have a designed empty state:
+```
+\\\[Illustrative icon or minimal SVG illustration]
+\\\[Heading: what is empty]
+\\\[Subtext: why it might be empty]
+\\\[Optional CTA: primary action to populate this view]
+```
+Empty states are not error states. Tone should be helpful and inviting, not apologetic.
+Success States
+Inline success: green checkmark replacing the submit button for 2–3 seconds before resetting or redirecting
+Toast notifications: top-right positioning, auto-dismiss after 4s, manually dismissible, maximum 1 stacked at a time for actions (not for system alerts)
+Toast must include an action link when the success has a next step ("View order →")
+Error States
+Distinguish between user errors (correctable, inline, non-destructive) and system errors (full error state, retry affordance)
+Network errors: show a retry button + estimated retry delay, never just "Something went wrong"
+404 pages: offer navigation back home + search; never a dead end
+Confirmation Dialogs
+Use for destructive actions only (delete, remove, cancel subscription)
+Dialog must name the specific item being deleted: "Delete 'Q4 Report.pdf'?" not "Delete this file?"
+"Cancel" is always the default-focused button (safe exit), not the destructive action
+Destructive button is never the primary/filled style — use a red outlined or ghost variant
+4.5 Interactive Affordances & Micro-Interactions
+Hover States
+Every interactive element must have a distinct hover state (background shift, color shift, underline, shadow change)
+Hover state transitions: `150ms ease-out` for entry, `100ms ease-in` for exit (faster exit feels snappier)
+Hover states must not shift adjacent content (no layout changes on hover)
+Active / Pressed States
+On `:active`, apply physical press simulation: `scale(0.97)` or `translateY(1px)` — never both simultaneously
+Active transition: `75ms ease-in` (near-instant, simulates physical resistance)
+For toggle buttons (active/inactive), use a filled background for active state and a subtle border for inactive
+Focus Management
+After closing a modal or popover, focus must return to the trigger element
+After navigating to a new page/route, focus moves to the `<h1>` or main content region (skip links for keyboard users)
+Tab order must follow visual reading order — never create focus traps outside modals
+Tactile Feedback Checklist
+Before marking any interactive component complete, verify:
+[ ] Hover state defined
+[ ] Active/pressed state defined
+[ ] Focus-visible state defined (ring, not just color shift)
+[ ] Disabled state defined (when applicable)
+[ ] Loading/pending state defined (when applicable)
+[ ] Keyboard navigation works without a mouse
+---
+<visual_directives>
+5. VISUAL DESIGN DIRECTIVES
+5.1 Typography System
+Type Scale
+Use a constrained, intentional scale — not arbitrary sizes:
+```
+Display:   text-5xl → text-7xl, tracking-tighter, leading-none, font-bold/black
+Headline:  text-3xl → text-4xl, tracking-tight, leading-tight, font-semibold
+Title:     text-xl → text-2xl, tracking-tight, leading-snug, font-medium
+Body:      text-base → text-lg, leading-relaxed, max-w-\\\[65ch]
+Label:     text-sm, tracking-wide, uppercase, font-medium (for form labels, table headers)
+Caption:   text-xs, leading-normal (for timestamps, metadata)
+Mono:      font-mono for all numbers in data-dense UIs, code, and technical values
+```
+Font Selection Rules
+Default stack: `Geist`, `Satoshi`, `Cabinet Grotesk`, or `Outfit`
+Inter is banned. Roboto, Arial, and system-ui defaults are banned.
+Serif fonts are banned in dashboards, SaaS UIs, and data-dense applications. Allowed only in editorial, magazine, or creative contexts.
+Pair a distinctive display/heading font with a refined body font. Never use two decorative fonts in the same project.
+Load fonts from Google Fonts or Bunny Fonts via `@import` in CSS or `<link>` in head
+Hierarchy via Weight + Color, Not Size
+Avoid an H1 that "screams." Control prominence using `font-weight` and color contrast, not just `font-size`
+Body text: `text-slate-600` (light mode) / `text-slate-400` (dark mode)
+Secondary/metadata text: `text-slate-400` / `text-slate-500`
+Interactive text links: accent color, underline on hover, never underlined by default in UI contexts (only in long-form prose)
+5.2 Color System
+Palette Architecture
+```
+Background:    1 color  (off-white, zinc-950, slate-900 — never pure #000 or #fff)
+Surface:       1–2 colors (card, panel, elevated)
+Border:        1 color (low-contrast, 1px dividers)
+Text Primary:  1 color
+Text Secondary: 1 color (subdued)
+Accent:        1 color maximum (brand color, interactive states)
+Semantic:      3 fixed colors (red/error, green/success, amber/warning)
+```
+Color Rules
+Maximum 1 accent color per project; saturation < 80%
+AI Purple Ban: No purple button glows, no neon blue-purple gradients. These signal "default AI output"
+No pure black (#000000): use Zinc-950, Slate-950, or a very dark warm off-black (#0a0a0a)
+No pure white (#ffffff) for large backgrounds: use #f9fafb, #fafaf9, or slate-50
+Warm and cool grays must not be mixed in the same project — pick one temperature and commit
+Accent color must pass contrast requirements when used on both light and dark backgrounds
+Use CSS variables for all color tokens: `--color-accent`, `--color-surface`, not hardcoded Tailwind values
+Semantic Color Discipline
+Red: errors only (not for warnings, not for "important notices")
+Green: success, completion, positive delta
+Amber/Orange: warnings, pending states, caution
+Blue (when not the accent): informational notices, links in prose
+Dark Mode
+Implement dark mode with `prefers-color-scheme` media query + a manual toggle (store preference in `localStorage`)
+Never use `dark:` Tailwind classes without also defining the light variant
+Dark mode surfaces must be layered, not flat: `bg-zinc-950` → `bg-zinc-900` → `bg-zinc-800` for depth
+5.3 Layout & Spatial Composition
+Grid Principles (by DESIGN_VARIANCE)
+```
+1–3 (Symmetric):   12-column grid, equal gutters, center-aligned sections, predictable rhythm
+4–7 (Offset):       Asymmetric split (60/40, 70/30), overlapping elements, varied vertical rhythm
+8–10 (Asymmetric): Masonry, fractional grid units (2fr 1fr 1fr), intentional void space, 20vw+ margins
+```
+Anti-Pattern: Center-Bias Override
+When `DESIGN\\\_VARIANCE > 4`, centered hero sections are banned. Use:
+Split-screen (left content / right asset)
+Left-aligned text with right-aligned negative space
+Diagonal text flow breaking the grid
+Spacing System
+Use a strict 4px base unit: all spacing values are multiples of 4 (`4, 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96…`).
+Never use arbitrary pixel values like `13px`, `22px`, `37px` — they signal unintentional design.
+Card Usage Policy
+Cards communicate elevation and containment. Use them only when grouping content that is interactive as a unit, or when one group must stand out against its background.
+Cards are banned for purely visual decoration in data-dense UIs (`VISUAL\\\_DENSITY > 7`). Use `border-t`, `divide-y`, or whitespace to create grouping without boxing.
+When a shadow is used on a card, tint it to the surface background color (not neutral black). Example: a warm background gets `box-shadow: 0 8px 32px rgba(120, 80, 40, 0.08)`.
+All major card containers: `rounded-2xl` (standard) or `rounded-\\\[2.5rem]` (premium/Bento-style)
+Anti-Patterns to Eliminate
+Three equal-width cards in a row for feature lists: use a 2-column zigzag, asymmetric Bento, or horizontal scroll instead
+Full-width hero image with centered text overlay: use left/right split with gradient fade to background color
+"Wall of text" sections: break with a pull-quote, inline stat, or illustrative element every 3–4 paragraphs
+5.4 Visual Effects & Materiality
+Glassmorphism (Correct Implementation)
+```css
+/\\\* Basic glass — not enough \\\*/
+backdrop-filter: blur(12px);
+
+/\\\* Premium glass with edge refraction \\\*/
+backdrop-filter: blur(16px) saturate(1.8);
+background: rgba(255, 255, 255, 0.06);
+border: 1px solid rgba(255, 255, 255, 0.12);
+box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 16px 32px rgba(0,0,0,0.12);
+```
+Shadows
+Tint shadows to the surface color, never use pure `rgba(0,0,0,X)` on colored backgrounds
+Shadow layering: `shadow-sm` for subtle lift, `shadow-md` for cards, `shadow-xl` for modals/popovers
+Avoid shadow spam: choose one elevation level per UI layer, not ad-hoc per component
+Elevated interactive elements (buttons, cards) must increase shadow on hover for lift feedback
+Backgrounds & Atmosphere
+Prefer atmospheric backgrounds over flat solid colors for hero/feature sections:
+Mesh gradients (CSS radial blobs via `@property` or SVG filters)
+Subtle noise/grain textures applied to a `fixed` pseudo-element (never on a scrolling container — GPU repaint cost)
+Geometric grid patterns with low opacity
+Never use Unsplash URLs — use `https://picsum.photos/seed/{unique-string}/1200/800` or SVG-based placeholders
+Stock photo placeholders must use unique seed strings per image, never the same seed twice
+</visual_directives>
+---
+6. MOTION & ANIMATION
+6.1 Motion Principles
+Purpose Before Performance
+Every animation must serve one of these functional goals:
+Orientation: show where an element came from or went (transition direction matches spatial relationship)
+Feedback: confirm a user action occurred
+Continuity: maintain context during state changes (shared element transitions)
+Delight: enrich the experience without slowing the user down
+If an animation serves none of these, remove it.
+Timing Guidelines
+```
+Micro-interactions (hover, press):    50–150ms
+Simple transitions (show/hide):       150–250ms
+Complex reveals (page sections):      300–500ms
+Choreographed sequences:              600–1200ms total, never longer
+```
+Easing
+Never use linear easing for anything visible to users
+Default: `cubic-bezier(0.16, 1, 0.3, 1)` (fast out, slight overshoot) — "snappy spring"
+Exits: `cubic-bezier(0.4, 0, 1, 1)` (ease-in) — elements accelerate out of view
+Spring physics (Framer): `type: "spring", stiffness: 100, damping: 20` for interactive elements
+Respect `prefers-reduced-motion`: wrap all non-essential animations:
+```css
+  @media (prefers-reduced-motion: reduce) {
+    \\\*, \\\*::before, \\\*::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+  ```
+6.2 Motion by MOTION_INTENSITY Dial
+Level 1–3 (Static)
+CSS `:hover` and `:active` states only
+`transition: opacity 150ms, transform 150ms` for show/hide
+No automatic animations, no loops, no entrance sequences
+Level 4–7 (Fluid CSS)
+Entrance animations on mount: `opacity 0→1` + `translateY(8px→0)` with `animation-delay` staggering
+`transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1)` on interactive elements
+`will-change: transform` used sparingly (only on elements that will definitely animate)
+Focus exclusively on `transform` and `opacity` — never animate `top`, `left`, `width`, `height`
+Level 8–10 (Advanced Choreography)
+Framer Motion for all interactive components
+`layout` and `layoutId` props for smooth reordering and shared element transitions
+Staggered children: `staggerChildren: 0.06` in parent variants; child variants with `hidden/visible` states
+Magnetic cursor effects using `useMotionValue` / `useTransform` outside the render cycle
+Perpetual micro-animations (pulse, float, shimmer, typewriter) isolated in `React.memo` Client Components
+`AnimatePresence` around any conditionally rendered content
+Never use `window.addEventListener('scroll')` — use Framer's `useScroll` or Intersection Observer
+CRITICAL Performance Rules
+Perpetual/infinite animations: isolated in their own microscopic `React.memo` Client Component
+Grain/noise textures: `fixed` + `pointer-events-none` pseudo-element only — never on scrolling containers
+Z-index: only for systemic layer contexts (navbars: 40, modals: 50, tooltips: 60) — never arbitrary
+GPU acceleration: `transform: translateZ(0)` or `will-change: transform` on animated elements
+No Framer Motion + GSAP in the same component tree; if GSAP is used for scroll-storytelling, it lives in its own isolated `useEffect` with strict cleanup
+---
+<design_system>
+7. COMPONENT DESIGN SYSTEM
+7.1 Buttons
+Button Hierarchy
+```
+Primary:    Filled, accent background, white text — one per page section maximum
+Secondary:  Outlined (1px border, accent color), transparent background
+Ghost:      No border, subtle hover background shift
+Destructive: Outlined red — never filled red as a default state
+Link:       Text-only, accent color, underline on hover
+```
+Button Anatomy
+Minimum height: 40px (standard), 48px (primary CTA), 36px (compact/table)
+Minimum width: 80px (prevents tiny buttons)
+Icon + label spacing: `gap-2` (8px)
+Loading state: replace label with `\\\[Spinner] Processing…`, maintain original button width
+Icon-only buttons must have `aria-label` and a tooltip on hover
+Button States Matrix
+Every button variant must define: Default → Hover → Active/Pressed → Focused → Disabled → Loading
+7.2 Tables & Data Grids
+Column headers: `text-xs uppercase tracking-wide font-medium text-slate-500`
+Row hover: subtle background shift (`bg-slate-50/60` in light mode)
+Sortable columns: sort icon visible on hover of header, active sort shows direction indicator
+Numeric columns: right-aligned, monospace font
+Long text cells: truncate with `truncate` class + tooltip on hover showing full value
+Checkbox column: 40px wide, vertically centered
+Empty state for filtered-to-zero results: "No results matching your filters" with a clear-filters action
+Sticky Headers for Long Tables
+```css
+thead th { position: sticky; top: 0; background: var(--color-surface); z-index: 1; }
+```
+7.3 Modals & Dialogs
+Max width: `max-w-lg` (standard), `max-w-2xl` (content-rich), `max-w-4xl` (preview/full)
+Always include a visible close button (top-right `×`) AND close on `Escape` AND close on backdrop click
+Focus trap: Tab key cycles only within modal when open
+`aria-modal="true"`, `role="dialog"`, `aria-labelledby` pointing to the modal title
+Backdrop: `bg-black/40 backdrop-blur-sm` — not fully opaque
+Entry animation: scale from `0.95` to `1` + fade in, `200ms spring`
+Never use browser `alert()`, `confirm()`, or `prompt()` — implement custom modal equivalents
+7.4 Tooltips & Popovers
+Tooltips: appear after `400ms` hover delay (not instant — prevents flash on cursor pass-through)
+Maximum tooltip width: 240px
+Tooltips are for supplemental information only — never for required instructions
+Popovers (interactive tooltips): require `role="dialog"` or `role="tooltip"` based on content
+Dismiss: `Escape` key, click outside, or focus leaving the trigger area
+7.5 Navigation Components
+Tab Groups
+Active tab: filled background or prominent underline — not just color change
+Tabs must be keyboard-navigable with left/right arrow keys (ARIA tablist pattern)
+Never use tabs for navigation that changes the URL — those are links, not tabs
+Accordions
+Show expand/collapse icon (chevron), rotate `180deg` on open
+Smooth height animation: use `grid-rows` trick in CSS or `AnimatePresence` in Framer
+Only allow one open at a time unless explicitly multi-select
+Dropdown Menus
+Max visible items: 8 before scroll, 6 on mobile
+Keyboard: arrow keys to navigate, Enter to select, Escape to close
+Selected item shows a checkmark or filled indicator, never just bold text
+Destructive items (delete, remove) at the bottom, separated by a divider, in red
+</design_system>
+---
+<content_standards>
+8. CONTENT & COPY STANDARDS
+All generated content must feel real, specific, and contextually appropriate.
+Names & People
+No "John Doe", "Jane Smith", "User 1" — use creative, culturally diverse, realistic names
+No generic SVG "egg" avatar silhouettes — use UI Avatars (`https://ui-avatars.com/api/?name=First+Last\\\&background=random`) or abstract geometric avatar generators
+Numbers & Data
+Avoid round numbers: `47.2%`, not `50%`; `$1,284`, not `$1,000`; `3,847 users`, not `4,000 users`
+Avoid patterns that reveal fabrication: `1234`, `9999`, `100%`, `0%`
+Performance metrics should show realistic variance: `99.3%` uptime, `143ms` response time, `+12.4%` growth
+Brand & Product Names
+No "Acme", "Nexus", "TechCorp", "SaaS App" — invent specific, evocative names suited to the context
+Brand names should hint at the domain: a logistics tool might be "Freight Rail", a finance dashboard might be "Ledger"
+UI Copy
+CTAs: use concrete action verbs ("Start analyzing", "Export CSV", "Send report") not vague ones ("Get started", "Learn more", "Click here")
+Empty state copy: warm, actionable, specific to what is missing
+Error messages: specific about what went wrong and what to do next
+Button labels must match the action exactly — never "OK" or "Confirm" without specifying what is confirmed
+Forbidden Copywriting Patterns (AI Slop)
+Never use: "Elevate", "Seamless", "Unleash", "Empower", "Next-Gen", "State-of-the-art", "Cutting-edge", "Revolutionary", "Game-changing", "Synergy", "Leverage", "Robust", "Scalable solution"
+</content_standards>
+---
+<anti_patterns>
+9. FORBIDDEN PATTERNS (ANTI-SLOP REFERENCE)
+The following patterns indicate generic AI output. Actively avoid every item on this list.
+Visual
+Neon outer glows on buttons or cards
+Pure black (#000) or pure white (#fff) backgrounds
+Purple/blue gradient overlays on dark hero sections
+Oversaturated accent colors (saturation > 80%)
+Gradient text on large headings as a default aesthetic
+Generic `box-shadow: 0 4px 6px rgba(0,0,0,0.1)` repeated identically on every card
+Decorative custom cursors
+Typography
+Inter, Roboto, Arial, or system-ui as the chosen typeface
+Serif fonts on dashboards or data UIs
+Overscaled H1 that dominates the page without proportional visual hierarchy
+Layout
+Three equal-width cards in a horizontal row for feature sections
+Centered hero section (when DESIGN_VARIANCE > 4)
+Asymmetric desktop layouts that overflow horizontally on mobile
+`h-screen` for full-height sections
+Content
+"John Doe" / "Jane Smith" / "User 1" names
+Generic SVG avatar silhouettes
+Round numbers: 50%, 100%, $1,000
+"Acme", "Nexus", "SmartFlow", "TechCorp" brand names
+Filler CTA copy: "Get started", "Learn more", "Elevate your workflow"
+Code
+`window.addEventListener('scroll')` for animation triggers
+`useState` for continuous animation values
+Mixing Framer Motion + GSAP in the same component
+Perpetual animations not isolated in `React.memo`
+Missing loading, empty, or error states
+`z-index: 9999` or arbitrary z-index stacking
+Emojis in any context
+</anti_patterns>
+10. PRE-FLIGHT CHECKLIST
+Evaluate every generated output against this matrix before finalizing:
+UX Completeness
+[ ] All interactive elements have defined hover, active, focus, and disabled states
+[ ] Forms have label-above-input, inline validation, and error messages
+[ ] All lists/tables/grids have designed empty states
+[ ] Loading states use layout-matched skeletons, not generic spinners
+[ ] Destructive actions require confirmation
+[ ] Toast / success states defined for all form submissions
+Accessibility
+[ ] Color contrast ≥ 4.5:1 for text
+[ ] All interactive elements keyboard-navigable
+[ ] Focus states visible on all interactive elements
+[ ] Semantic HTML: correct use of `<button>`, `<a>`, heading hierarchy
+[ ] All images have descriptive `alt` text
+[ ] `prefers-reduced-motion` respected
+Layout & Responsiveness
+[ ] Mobile layout collapses cleanly to single-column below 768px
+[ ] `min-h-\\\[100dvh]` used (never `h-screen`) for full-height sections
+[ ] CSS Grid used for multi-column structures (no flexbox calc math)
+[ ] Content contained with `max-w-7xl mx-auto`
+[ ] No horizontal overflow on mobile
+Performance
+[ ] Perpetual/infinite animations isolated in `React.memo` Client Components
+[ ] `transform` and `opacity` only — no layout property animations
+[ ] Grain/noise textures on `fixed` pseudo-elements only
+[ ] Strict cleanup functions in `useEffect` animations
+[ ] Z-index used only for systemic layers
+Visual Quality
+[ ] Anti-slop patterns avoided (see Section 9)
+[ ] Single accent color maintained throughout
+[ ] Font choice is distinctive and contextually appropriate
+[ ] Spacing follows 4px base unit
+[ ] Content (names, numbers, copy) is realistic and specific
+Code Quality
+[ ] All dependencies verified against `package.json`
+[ ] Client/Server Component boundary correctly placed
+[ ] No emoji in any output
+[ ] State managed at the correct scope

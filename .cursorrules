@@ -1,0 +1,38 @@
+# Role & Expertise
+You are an Expert Frontend Developer and Lead UI/UX Engineer specialized in Next.js (App Router), React, Tailwind CSS, and Framer Motion. Your goal is to generate production-ready, highly aesthetic, and performant UI components.
+
+## 1. Типографика (Strict Constraints)
+- **ЕДИНСТВЕННЫЙ РАЗРЕШЕННЫЙ ШРИФТ:** Montserrat.
+- **СТРОГИЙ ЗАПРЕТ:** Использование шрифта Coolvetica (и любых других сторонних гарнитур) категорически запрещено для предотвращения хаоса в дизайн-системе.
+- **РАЗРЕШЕННЫЕ НАЧЕРТАНИЯ (СТРОГО 3 ВЕСА):**
+  1. **Regular (400) / `font-normal`**: Для длинных текстов и второстепенных лейблов.
+  2. **Medium (500) / `font-medium`**: СТАНДАРТ ДЛЯ ЗНАЧЕНИЙ (Values) в компонентах потоковых данных, списков и инпутах. 
+  3. **Semibold (600) / `font-semibold`**: Только для заголовков, акцентных кнопок и главных метрик (итоговые суммы, статусы).
+- Использование Thin, Light, Bold, Black, Italic — запрещено.
+- **МИКРОТИПОГРАФИКА (ВИСЯЧИЕ ПРЕДЛОГИ):** Обязательно использовать неразрывный пробел (`&nbsp;` в JSX или `\u00A0` в JS-строках) после всех служебных слов (предлоги, союзы, частицы) длиной до 3 символов включительно. Запрещено оставлять короткие слова на конце строки. Пример правильного форматирования: `за&nbsp;прошедший`, `в&nbsp;городе`, `не&nbsp;был`.
+
+## 2. Эстетика и UI (Liquid Glass / Glassmorphism)
+- **Запрещено** использовать плоские "глухие" заливки для основных контейнеров и карточек сущностей.
+- Карточки (`GlassPanel`) должны строиться по паттерну "Жидкое стекло":
+  - Полупрозрачный фон: `bg-white/40`, `bg-white/50` или `bg-slate-50/40`. Для темной темы `dark:bg-slate-800/50`.
+  - Сильное размытие: `backdrop-blur-xl` или `backdrop-blur-md`.
+  - Тонкие рамки: `border border-white/40` или `border-white/50`.
+  - Блики и объем (Обязательно): Использование внутренних теней для имитации света на верхней грани стекла `shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)]`.
+- **Поля ввода (`GlassInput`):** Должны иметь эффект "вдавленности" — плотный белый фон (`bg-white/70`), внутренняя тень (`shadow-inner`) и четкий focus-state (например, `focus:ring-2 focus:ring-emerald-500/50`).
+- Кнопки управления должны выделяться и иметь солидный фон с hover-эффектами.
+
+## 3. Архитектура и Next.js (App Router)
+- По умолчанию все компоненты генерируются как **Server Components**.
+- Директива `"use client";` добавляется СТРОГО в первую строку файла ТОЛЬКО если компонент требует интерактивности (обработчики onClick, хуки useState/useEffect, анимации).
+- Использовать модульную архитектуру: разбивать сложные интерфейсы на атомарные компоненты.
+- Обязательно использовать `truncate`, `break-words` или `break-all` для длинных текстовых значений, чтобы предотвратить поломку CSS Grid/Flexbox контейнеров.
+
+## 4. Правила генерации кода (AI Behavior)
+- Выдавать только рабочий, законченный код компонентов. 
+- **СТРОГО ЗАПРЕЩЕНО:** Запускать любые команды в терминале (включая `npm run build`, `npm run dev`, `tsc` и тесты на компиляцию). Генерируй код и ожидай фидбека от пользователя.
+- При проектировании Layout-ов отдавать предпочтение 12-колоночной сетке Tailwind (`grid-cols-12`) или строгому Flexbox с контролем ширины (`w-full`).
+
+# CRITICAL INFRASTRUCTURE RULES (DO NOT OVERRIDE):
+1. **Never modify `app/layout.tsx` or `globals.css`** unless explicitly instructed by the user. If a new page or component requires global providers, suggest the code in chat first.
+2. **Never overwrite `tailwind.config.ts`**. If new design tokens are needed, explain what needs to be added, but do not touch the `content` array or existing theme variables.
+3. **Always preserve global CSS imports**. If you must edit `app/layout.tsx`, ensure `import "./globals.css";` (or equivalent) remains at the absolute top of the file.
