@@ -1,30 +1,16 @@
 #!/usr/bin/env python3
 """Playwright scrapers for Booking.com + TripAdvisor reviews.
 
-Designed for ONE hotel at a time, with slow human-like pacing.
-Does NOT solve captchas automatically — if a challenge appears, use
-`--headed` and pass it manually, or load a saved `--storage-state`.
+Booking: warm session → open reviews → GraphQL ReviewList pagination (skip/limit).
+TripAdvisor: page orN pagination with DOM extract.
 
 Examples:
   pip install -r scripts/requirements-scraping.txt
-  playwright install chromium
+  python3 -m playwright install chromium
 
-  # Booking review list (paginated)
-  python3 scripts/scrape_booking_tripadvisor_playwright.py booking \\
-    --headed --max-pages 20
-
-  # TripAdvisor orN pages
-  python3 scripts/scrape_booking_tripadvisor_playwright.py tripadvisor \\
-    --headed --max-pages 50
-
-  # Both, then merge into REVIEWS_ALL.md
-  python3 scripts/scrape_booking_tripadvisor_playwright.py both \\
-    --headed --proxy "$RESIDENTIAL_PROXY" --storage-state ./storage.json
-
-Env:
-  RESIDENTIAL_PROXY   e.g. http://user:pass@host:port
-  BOOKING_PAGENAME    default: grand-plaza
-  TA_GEO / TA_DETAIL  default: g297549 / d23263857
+  python3 scripts/scrape_booking_tripadvisor_playwright.py booking --max-pages 250
+  python3 scripts/scrape_booking_tripadvisor_playwright.py tripadvisor --max-pages 50
+  python3 scripts/scrape_booking_tripadvisor_playwright.py both --max-pages 250
 """
 
 from __future__ import annotations
@@ -40,7 +26,6 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 OUT_DIR = Path("data/onlinetours/jaz-casa-del-mar-beach")
 HOTEL_NAME = "Jaz Elite Casa Del Mar Beach"
@@ -51,17 +36,19 @@ BOOKING_PAGENAME = os.getenv("BOOKING_PAGENAME", "grand-plaza")
 BOOKING_HOTEL_URL = (
     f"https://www.booking.com/hotel/eg/{BOOKING_PAGENAME}.en-gb.html"
 )
-BOOKING_REVIEWLIST = (
-    "https://www.booking.com/reviewlist.en-gb.html"
-    f"?cc1=eg;pagename={BOOKING_PAGENAME};type=total;"
-    "sort=f_recent_desc;rows={rows};offset={offset}"
+BOOKING_HOTEL_ID = int(os.getenv("BOOKING_HOTEL_ID", "314504"))
+BOOKING_UFI = int(os.getenv("BOOKING_UFI", "-290029"))
+BOOKING_GQL = "https://www.booking.com/dml/graphql"
+REVIEWLIST_QUERY = (
+    Path(__file__).with_name("booking_reviewlist.graphql").read_text(encoding="utf-8")
 )
 
 TA_GEO = os.getenv("TA_GEO", "g297549")
 TA_DETAIL = os.getenv("TA_DETAIL", "d23263857")
 TA_SLUG = "JAZ_Elite_Casa_Del_Mar_Beach-Hurghada_Red_Sea_and_Sinai"
+
+
 def ta_page_url(page_idx: int) -> str:
-    """TripAdvisor uses or5 / or10 / … offsets (5 reviews per page)."""
     or_token = "" if page_idx == 0 else f"or{page_idx * 5}-"
     return (
         f"https://www.tripadvisor.co.uk/Hotel_Review-{TA_GEO}-{TA_DETAIL}"
@@ -69,17 +56,10 @@ def ta_page_url(page_idx: int) -> str:
     )
 
 
-# ---------------------------------------------------------------------------
-# Browser helpers
-# ---------------------------------------------------------------------------
-
 def _proxy_from_env(cli_proxy: str | None) -> dict[str, str] | None:
-    raw = cli_proxy or os.getenv("RESIDENTIAL_PROXY") or ""
-    raw = raw.strip()
+    raw = (cli_proxy or os.getenv("RESIDENTIAL_PROXY") or "").strip()
     if not raw:
         return None
-    # Playwright accepts server + optional username/password
-    # Formats: http://user:pass@host:port  OR  http://host:port
     m = re.match(
         r"^(?P<scheme>https?|socks5)://(?:(?P<user>[^:@]+):(?P<pw>[^@]+)@)?"
         r"(?P<host>[^:/]+):(?P<port>\d+)/?$",
@@ -111,7 +91,7 @@ async def _new_context(
     )
     kwargs: dict[str, Any] = {
         "locale": locale,
-        "viewport": {"width": 1365, "height": 900},
+        "viewport": {"width": 1440, "height": 1100},
         "user_agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -121,46 +101,100 @@ async def _new_context(
     if storage_state and storage_state.exists():
         kwargs["storage_state"] = str(storage_state)
     context = await browser.new_context(**kwargs)
-    # Light stealth: hide webdriver flag
     await context.add_init_script(
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
     )
     return browser, context
 
 
-async def _human_pause(lo: float = 0.8, hi: float = 2.2) -> None:
+async def _human_pause(lo: float = 0.4, hi: float = 1.2) -> None:
     await asyncio.sleep(random.uniform(lo, hi))
 
 
+async def _accept_cookies(page: Any) -> None:
+    for sel in [
+        "#onetrust-accept-btn-handler",
+        "button#onetrust-accept-btn-handler",
+        "button:has-text('Accept all')",
+        "button:has-text('Accept')",
+    ]:
+        try:
+            btn = page.locator(sel).first
+            if await btn.count() and await btn.is_visible(timeout=1200):
+                await btn.click(timeout=3000)
+                await _human_pause(0.3, 0.8)
+                return
+        except Exception:
+            continue
+
+
 async def _wait_for_challenge(page: Any, headed: bool, label: str) -> bool:
-    """Return True if page looks blocked/challenged."""
     content = (await page.content()).lower()
     markers = (
         "not a robot",
-        "enable javascript",
         "captcha",
         "access denied",
         "please wait",
-        "cf-challenge",
-        "attention required",
         "verify you are human",
+        "cf-challenge",
     )
-    blocked = any(m in content for m in markers) or len(content) < 1500
+    blocked = any(m in content for m in markers)
     if blocked:
-        print(f"[{label}] challenge/empty page detected", flush=True)
+        print(f"[{label}] challenge detected", flush=True)
         if headed:
-            print(
-                f"[{label}] Solve captcha in the browser window, then press Enter here…",
-                flush=True,
-            )
+            print(f"[{label}] Solve captcha, then press Enter…", flush=True)
             await asyncio.to_thread(sys.stdin.readline)
             return False
         return True
     return False
 
 
+def _ts_to_date(ts: int | None) -> str | None:
+    if not ts:
+        return None
+    try:
+        return datetime.fromtimestamp(int(ts), tz=timezone.utc).date().isoformat()
+    except Exception:
+        return None
+
+
+def normalize_booking_card(card: dict[str, Any]) -> dict[str, Any] | None:
+    guest = card.get("guestDetails") or {}
+    text = card.get("textDetails") or {}
+    booking = card.get("bookingDetails") or {}
+    room = (booking.get("roomType") or {}).get("name")
+    parts: list[str] = []
+    if text.get("title"):
+        parts.append(str(text["title"]))
+    if text.get("positiveText"):
+        parts.append(f"Плюсы: {text['positiveText']}")
+    if text.get("negativeText"):
+        parts.append(f"Минусы: {text['negativeText']}")
+    body = "\n\n".join(parts).strip()
+    if len(body) < 5:
+        return None
+    author = None if guest.get("anonymous") else guest.get("username")
+    return {
+        "source": "booking.com",
+        "source_url": BOOKING_HOTEL_URL,
+        "id": card.get("reviewUrl"),
+        "author": author,
+        "title": text.get("title"),
+        "rating": card.get("reviewScore"),
+        "published_at": _ts_to_date(card.get("reviewedDate")),
+        "visit_date": booking.get("checkinDate"),
+        "group_type": guest.get("guestTypeTranslation") or booking.get("customerType"),
+        "room_type": room,
+        "nights": booking.get("numNights"),
+        "country": guest.get("countryName"),
+        "lang": text.get("lang"),
+        "text": body,
+        "partner_reply": ((card.get("partnerReply") or {}).get("reply")),
+    }
+
+
 # ---------------------------------------------------------------------------
-# Booking.com
+# Booking via GraphQL
 # ---------------------------------------------------------------------------
 
 async def scrape_booking(
@@ -169,7 +203,7 @@ async def scrape_booking(
     proxy: dict[str, str] | None,
     storage_state: Path | None,
     max_pages: int,
-    rows: int = 25,
+    rows: int = 10,
     save_storage: Path | None,
 ) -> list[dict[str, Any]]:
     try:
@@ -177,7 +211,7 @@ async def scrape_booking(
     except ImportError as exc:
         raise SystemExit(
             "Install: pip install -r scripts/requirements-scraping.txt "
-            "&& playwright install chromium"
+            "&& python3 -m playwright install chromium"
         ) from exc
 
     reviews: list[dict[str, Any]] = []
@@ -190,140 +224,129 @@ async def scrape_booking(
             locale="en-GB",
         )
         page = await context.new_page()
-
-        # Warm-up: land on hotel page to get cookies
         print(f"[Booking] open {BOOKING_HOTEL_URL}", flush=True)
         await page.goto(BOOKING_HOTEL_URL, wait_until="domcontentloaded", timeout=90000)
-        await _human_pause(1.5, 3.0)
+        await _human_pause(1.0, 2.0)
+        await _accept_cookies(page)
         if await _wait_for_challenge(page, headed, "Booking"):
             await browser.close()
             return reviews
 
-        # Accept cookies banner if present
+        # Open reviews list so GraphQL/session is primed
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.35)")
+        await _human_pause(0.8, 1.5)
+        opened = False
         for sel in [
-            "#onetrust-accept-btn-handler",
-            "button#onetrust-accept-btn-handler",
-            "button:has-text('Accept')",
-            "button:has-text('Accept all')",
+            '[data-testid="review-score-read-all"]',
+            '[data-testid="fr-read-all-reviews"]',
+            '[data-testid="Property-Header-Nav-Tab-Trigger-reviews"]',
+            "button:has-text('Read all reviews')",
+            "span:has-text('Read all reviews')",
         ]:
+            loc = page.locator(sel).first
             try:
-                btn = page.locator(sel).first
-                if await btn.count() and await btn.is_visible():
-                    await btn.click(timeout=3000)
-                    await _human_pause()
+                if await loc.count():
+                    await loc.scroll_into_view_if_needed()
+                    await loc.click(timeout=5000)
+                    opened = True
+                    print(f"[Booking] opened reviews via {sel}", flush=True)
                     break
             except Exception:
-                pass
+                continue
+        if not opened:
+            print("[Booking] could not open reviews UI", flush=True)
+        await page.wait_for_timeout(2500)
 
-        for page_idx in range(max_pages):
-            offset = page_idx * rows
-            url = BOOKING_REVIEWLIST.format(rows=rows, offset=offset)
-            print(f"[Booking] offset={offset} {url}", flush=True)
-            await page.goto(url, wait_until="domcontentloaded", timeout=90000)
-            await _human_pause(1.0, 2.5)
-            if await _wait_for_challenge(page, headed, "Booking"):
-                break
+        skip = 0
+        page_idx = 0
+        empty_streak = 0
+        while page_idx < max_pages:
+            payload = {
+                "operationName": "ReviewList",
+                "variables": {
+                    "shouldShowReviewListPhotoAltText": True,
+                    "shouldGetUserReviewCount": False,
+                    "input": {
+                        "hotelId": BOOKING_HOTEL_ID,
+                        "ufi": BOOKING_UFI,
+                        "hotelCountryCode": "eg",
+                        "sorter": "NEWEST_FIRST",
+                        "filters": {"text": ""},
+                        "skip": skip,
+                        "limit": rows,
+                        "hotelScore": 9.2,
+                        "upsortReviewUrl": "",
+                        "searchFeatures": {
+                            "destId": BOOKING_UFI,
+                            "destType": "CITY",
+                        },
+                    },
+                },
+                "query": REVIEWLIST_QUERY,
+                "extensions": {},
+            }
 
-            # reviewlist often returns fragment HTML with review blocks
-            items = await page.evaluate(
-                """() => {
-                  const out = [];
-                  const blocks = document.querySelectorAll(
-                    '[data-testid="review-card"], .review_list_new_item_block, .review_item, .c-review-block'
-                  );
-                  const nodes = blocks.length ? blocks : [];
-                  for (const el of nodes) {
-                    const author =
-                      el.querySelector('[data-testid="review-avatar"] + * , .bui-avatar-block__title, .reviewer_name')?.textContent?.trim()
-                      || el.querySelector('.bui-avatar-block__title')?.textContent?.trim()
-                      || null;
-                    const score =
-                      el.querySelector('[data-testid="review-score"] , .bui-review-score__badge, .review-score-badge')?.textContent?.trim()
-                      || null;
-                    const title =
-                      el.querySelector('[data-testid="review-title"] , .c-review-block__title, .review_item_header_content_title')?.textContent?.trim()
-                      || null;
-                    const date =
-                      el.querySelector('[data-testid="review-date"] , .c-review-block__date, .review_item_date')?.textContent?.trim()
-                      || null;
-                    const pros =
-                      el.querySelector('[data-testid="review-positive"] , .c-review__quote, .review_pos')?.textContent?.trim()
-                      || null;
-                    const cons =
-                      el.querySelector('[data-testid="review-negative"] , .review_neg')?.textContent?.trim()
-                      || null;
-                    const texts = [...el.querySelectorAll('.c-review__body, [data-testid="review-content"] , .review_item_review_content')]
-                      .map(n => n.textContent.trim()).filter(Boolean);
-                    const body = [pros && `Плюсы: ${pros}`, cons && `Минусы: ${cons}`, ...texts]
-                      .filter(Boolean).join('\\n\\n');
-                    if (body || title) {
-                      out.push({ author, score, title, date, body });
-                    }
-                  }
-                  // fallback: gather review-ish cards by score badge presence
-                  if (!out.length) {
-                    for (const el of document.querySelectorAll('.review_list_new_item_block, li')) {
-                      const t = el.innerText || '';
-                      if (t.length < 80) continue;
-                      if (!/\\b\\d([.,]\\d)?\\b/.test(t)) continue;
-                      out.push({
-                        author: null,
-                        score: null,
-                        title: null,
-                        date: null,
-                        body: t.slice(0, 4000),
-                      });
-                    }
-                  }
-                  return out;
-                }"""
+            result = await page.evaluate(
+                """async ({url, payload}) => {
+                  const res = await fetch(url, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(payload),
+                  });
+                  const text = await res.text();
+                  return { status: res.status, text };
+                }""",
+                {"url": BOOKING_GQL, "payload": payload},
             )
-
-            if not items:
-                html = await page.content()
-                dump = OUT_DIR / f"debug_booking_offset_{offset}.html"
-                dump.write_text(html, encoding="utf-8")
+            if result["status"] != 200:
                 print(
-                    f"[Booking] no items at offset={offset}; saved {dump}",
+                    f"[Booking] GraphQL HTTP {result['status']} at skip={skip}",
                     flush=True,
                 )
+                dump = OUT_DIR / f"debug_booking_gql_{skip}.txt"
+                dump.write_text(result["text"][:5000], encoding="utf-8")
+                break
+            try:
+                data = json.loads(result["text"])
+            except json.JSONDecodeError:
+                print(f"[Booking] bad JSON at skip={skip}", flush=True)
                 break
 
-            for it in items:
-                text_parts = []
-                if it.get("title"):
-                    text_parts.append(it["title"])
-                if it.get("body"):
-                    text_parts.append(it["body"])
-                text = "\n\n".join(text_parts).strip()
-                if len(text) < 20:
-                    continue
-                score = it.get("score")
-                try:
-                    rating = float(str(score).replace(",", ".")) if score else None
-                except ValueError:
-                    rating = None
-                reviews.append(
-                    {
-                        "source": "booking.com",
-                        "source_url": BOOKING_HOTEL_URL,
-                        "author": it.get("author"),
-                        "title": it.get("title"),
-                        "rating": rating,
-                        "published_at": it.get("date"),
-                        "text": text,
-                    }
+            rlf = ((data.get("data") or {}).get("reviewListFrontend")) or {}
+            if rlf.get("__typename") == "ReviewsFrontendError":
+                print(f"[Booking] API error: {rlf}", flush=True)
+                break
+            cards = rlf.get("reviewCard") or []
+            total = rlf.get("reviewsCount")
+            if not cards:
+                empty_streak += 1
+                print(f"[Booking] empty at skip={skip} total={total}", flush=True)
+                if empty_streak >= 2:
+                    break
+            else:
+                empty_streak = 0
+                added = 0
+                for card in cards:
+                    item = normalize_booking_card(card)
+                    if item:
+                        reviews.append(item)
+                        added += 1
+                print(
+                    f"[Booking] skip={skip}: +{added}/{len(cards)} "
+                    f"(run={len(reviews)} total={total})",
+                    flush=True,
                 )
-            print(
-                f"[Booking] page {page_idx + 1}: +{len(items)} "
-                f"(unique corpus so far {len(reviews)})",
-                flush=True,
-            )
-            await _human_pause(1.2, 3.0)
+                if total and skip + len(cards) >= int(total):
+                    break
+
+            skip += rows
+            page_idx += 1
+            await _human_pause(0.35, 0.9)
 
         if save_storage:
             await context.storage_state(path=str(save_storage))
-            print(f"[Booking] saved storage state → {save_storage}", flush=True)
+            print(f"[Booking] storage → {save_storage}", flush=True)
         await browser.close()
 
     return _dedup_reviews(reviews)
@@ -346,7 +369,7 @@ async def scrape_tripadvisor(
     except ImportError as exc:
         raise SystemExit(
             "Install: pip install -r scripts/requirements-scraping.txt "
-            "&& playwright install chromium"
+            "&& python3 -m playwright install chromium"
         ) from exc
 
     reviews: list[dict[str, Any]] = []
@@ -364,17 +387,16 @@ async def scrape_tripadvisor(
             url = ta_page_url(page_idx)
             print(f"[TripAdvisor] page={page_idx + 1} {url}", flush=True)
             await page.goto(url, wait_until="domcontentloaded", timeout=90000)
-            await _human_pause(1.5, 3.5)
+            await _human_pause(1.2, 2.5)
             if await _wait_for_challenge(page, headed, "TripAdvisor"):
                 break
 
-            # Expand "Read more" where possible
-            for _ in range(8):
-                more = page.locator("text=Read more").first
+            for _ in range(10):
+                more = page.locator("span:has-text('Read more'), a:has-text('Read more')").first
                 try:
                     if await more.count() and await more.is_visible():
-                        await more.click(timeout=2000)
-                        await _human_pause(0.3, 0.8)
+                        await more.click(timeout=1500)
+                        await _human_pause(0.2, 0.5)
                     else:
                         break
                 except Exception:
@@ -383,9 +405,8 @@ async def scrape_tripadvisor(
             items = await page.evaluate(
                 """() => {
                   const out = [];
-                  // Modern TA cards
                   const cards = document.querySelectorAll(
-                    '[data-test-target="HR_CC_CARD"], [data-reviewid], .review-container, .WAllg'
+                    '[data-test-target="HR_CC_CARD"], [data-reviewid], .review-container'
                   );
                   const pick = (el, sels) => {
                     for (const s of sels) {
@@ -397,35 +418,33 @@ async def scrape_tripadvisor(
                   for (const el of cards) {
                     const author = pick(el, [
                       '[data-test-target="reviews_member_name"] a',
-                      'a.ui_header_link',
+                      'a[href*="/Profile/"]',
                       '.info_text div',
                     ]);
                     const title = pick(el, [
                       '[data-test-target="review-title"]',
-                      '.Qwuub a span',
+                      'a[href*="ShowUserReviews"] span',
                       '.noQuotes',
                     ]);
                     const body = pick(el, [
                       '[data-test-target="review-content"]',
-                      '.Qwuub span',
-                      '.partial_entry',
                       'q span',
+                      '.partial_entry',
                     ]);
+                    let rating = null;
                     const ratingEl = el.querySelector(
                       'svg[aria-label*="bubble"], span.ui_bubble_rating, [class*="bubble_"]'
                     );
-                    let rating = null;
                     if (ratingEl) {
                       const al = ratingEl.getAttribute('aria-label')
-                        || ratingEl.getAttribute('class')
-                        || '';
+                        || ratingEl.getAttribute('class') || '';
                       const m = al.match(/(\\d)\\s*of\\s*5|bubble_(\\d0)/);
                       if (m) rating = m[1] ? Number(m[1]) : Number(m[2]) / 10;
                     }
                     const date = pick(el, [
                       '[data-test-target="review-date"]',
-                      '.cRVSd span',
                       '.ratingDate',
+                      'span:has-text("Date of stay")',
                     ]);
                     if ((body && body.length > 40) || title) {
                       out.push({ author, title, body, rating, date });
@@ -438,8 +457,11 @@ async def scrape_tripadvisor(
             if not items:
                 dump = OUT_DIR / f"debug_ta_page_{page_idx}.html"
                 dump.write_text(await page.content(), encoding="utf-8")
-                print(f"[TripAdvisor] empty page; saved {dump}", flush=True)
-                break
+                print(f"[TripAdvisor] empty; saved {dump}", flush=True)
+                # stop early if clearly blocked/empty
+                if page_idx >= 2:
+                    break
+                continue
 
             before = len(reviews)
             for it in items:
@@ -464,18 +486,17 @@ async def scrape_tripadvisor(
                 f"(unique {len(_dedup_reviews(reviews))})",
                 flush=True,
             )
-            await _human_pause(1.5, 3.5)
+            await _human_pause(1.0, 2.2)
 
         if save_storage:
             await context.storage_state(path=str(save_storage))
-            print(f"[TripAdvisor] saved storage state → {save_storage}", flush=True)
         await browser.close()
 
     return _dedup_reviews(reviews)
 
 
 # ---------------------------------------------------------------------------
-# Merge into corpus + MD
+# Corpus merge
 # ---------------------------------------------------------------------------
 
 def _dedup_reviews(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -484,7 +505,7 @@ def _dedup_reviews(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for r in items:
         key = (
             r.get("source"),
-            r.get("author"),
+            r.get("id") or r.get("author"),
             (r.get("title") or ""),
             (r.get("text") or "")[:120],
         )
@@ -496,6 +517,8 @@ def _dedup_reviews(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def fingerprint(r: dict[str, Any]) -> tuple[Any, ...]:
+    if r.get("id") and r.get("source"):
+        return (r.get("source"), r.get("id"))
     return (
         r.get("source"),
         r.get("author"),
@@ -511,7 +534,19 @@ def merge_into_corpus(new_items: list[dict[str, Any]]) -> dict[str, Any]:
     else:
         data = {"hotel": HOTEL_NAME, "reviews": []}
 
-    existing = {fingerprint(r) for r in data.get("reviews", [])}
+    # Drop previously bad booking placeholder junk
+    cleaned = []
+    for r in data.get("reviews", []):
+        if r.get("source") == "booking.com":
+            t = r.get("text") or ""
+            if "It starts with a booking" in t or "Followed by a trip" in t:
+                continue
+            if r.get("rating") is None and len(t) < 80:
+                continue
+        cleaned.append(r)
+    data["reviews"] = cleaned
+
+    existing = {fingerprint(r) for r in data["reviews"]}
     added = 0
     for r in new_items:
         fp = fingerprint(r)
@@ -551,16 +586,7 @@ def write_markdown(data: dict[str, Any]) -> None:
         (data.get("by_source") or {}).items(), key=lambda x: -x[1]
     ):
         parts.append(f"- {src}: {cnt}\n")
-    parts.append("\n## Покрытие и ограничения\n\n")
-    parts.append(
-        "- Booking/TripAdvisor: Playwright-скрипт "
-        "`scripts/scrape_booking_tripadvisor_playwright.py` "
-        "(headed / storage-state / residential proxy).\n"
-    )
-    parts.append(
-        "- Без валидной браузерной сессии сайты отдают captcha/JS-challenge.\n\n"
-    )
-    parts.append("---\n\n## Все отзывы\n\n")
+    parts.append("\n---\n\n## Все отзывы\n\n")
 
     for i, r in enumerate(data.get("reviews") or [], 1):
         parts.append(f"### {i}. {r.get('author') or 'Без имени'}\n")
@@ -571,10 +597,6 @@ def write_markdown(data: dict[str, Any]) -> None:
             )
         if r.get("rating") is not None:
             meta.append(f"оценка: **{r['rating']}**")
-        if r.get("recommendation") is True:
-            meta.append("рекомендует")
-        if r.get("recommendation") is False:
-            meta.append("не рекомендует")
         if r.get("published_at"):
             meta.append(f"опубликован: {r['published_at']}")
         if r.get("visit_date"):
@@ -585,8 +607,10 @@ def write_markdown(data: dict[str, Any]) -> None:
             meta.append(f"компания: {r['group_type']}")
         if r.get("traveled_with"):
             meta.append(f"компания: {r['traveled_with']}")
-        if r.get("locale"):
-            meta.append(f"язык: {r['locale']}")
+        if r.get("room_type"):
+            meta.append(f"номер: {r['room_type']}")
+        if r.get("country"):
+            meta.append(f"страна: {r['country']}")
         if r.get("confirmed_stay"):
             meta.append("проживание подтверждено")
         if meta:
@@ -609,45 +633,25 @@ def write_markdown(data: dict[str, Any]) -> None:
     print(f"Wrote {CORPUS_MD} ({CORPUS_MD.stat().st_size} bytes)", flush=True)
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
         "target",
         choices=["booking", "tripadvisor", "both", "merge-only"],
-        help="Что скрейпить",
     )
-    p.add_argument("--headed", action="store_true", help="Показать окно браузера")
-    p.add_argument("--proxy", default=None, help="http://user:pass@host:port")
-    p.add_argument(
-        "--storage-state",
-        type=Path,
-        default=None,
-        help="Путь к Playwright storage state (cookies)",
-    )
-    p.add_argument(
-        "--save-storage",
-        type=Path,
-        default=None,
-        help="Сохранить storage state после сессии",
-    )
-    p.add_argument("--max-pages", type=int, default=5, help="Сколько страниц/оффсетов")
-    p.add_argument("--rows", type=int, default=25, help="Booking rows per page")
-    p.add_argument(
-        "--no-merge",
-        action="store_true",
-        help="Не мержить в REVIEWS_ALL.md (только вывести JSON в stdout)",
-    )
+    p.add_argument("--headed", action="store_true")
+    p.add_argument("--proxy", default=None)
+    p.add_argument("--storage-state", type=Path, default=None)
+    p.add_argument("--save-storage", type=Path, default=None)
+    p.add_argument("--max-pages", type=int, default=250)
+    p.add_argument("--rows", type=int, default=10, help="Booking GraphQL page size")
+    p.add_argument("--no-merge", action="store_true")
     return p
 
 
 async def async_main(args: argparse.Namespace) -> None:
     proxy = _proxy_from_env(args.proxy)
     collected: list[dict[str, Any]] = []
-
     if args.target in {"booking", "both"}:
         collected += await scrape_booking(
             headed=args.headed,
@@ -662,39 +666,24 @@ async def async_main(args: argparse.Namespace) -> None:
             headed=args.headed,
             proxy=proxy,
             storage_state=args.storage_state,
-            max_pages=args.max_pages,
+            max_pages=min(args.max_pages, 400),
             save_storage=args.save_storage,
         )
-
     collected = _dedup_reviews(collected)
     print(f"Collected {len(collected)} reviews this run", flush=True)
-
-    # Persist raw run dump
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     run_path = OUT_DIR / f"playwright_run_{args.target}.json"
     run_path.write_text(
         json.dumps(collected, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     print(f"Saved raw run → {run_path}", flush=True)
-
-    if args.no_merge:
-        print(json.dumps(collected, ensure_ascii=False, indent=2))
-        return
-    if args.target == "merge-only":
-        # Remerge existing corpus into MD only
-        if not CORPUS_JSON.exists():
-            raise SystemExit(f"No corpus at {CORPUS_JSON}")
-        data = json.loads(CORPUS_JSON.read_text(encoding="utf-8"))
-        write_markdown(data)
-        return
-    merge_into_corpus(collected)
+    if not args.no_merge:
+        merge_into_corpus(collected)
 
 
 def main() -> None:
     args = build_parser().parse_args()
     if args.target == "merge-only":
-        if not CORPUS_JSON.exists():
-            raise SystemExit(f"No corpus at {CORPUS_JSON}")
         data = json.loads(CORPUS_JSON.read_text(encoding="utf-8"))
         write_markdown(data)
         return

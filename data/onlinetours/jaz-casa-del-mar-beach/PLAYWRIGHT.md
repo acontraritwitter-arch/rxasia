@@ -4,12 +4,11 @@
 
 ## Зачем
 
-`curl`/обычный HTTP из датацентра блокируются:
+`curl`/обычный HTTP из датацентра часто блокируются. Playwright с Chromium обходит часть защиты.
 
-- **Booking.com** — JS-challenge («verify you are not a robot»)
-- **TripAdvisor** — captcha / Access Denied
-
-Нужен настоящий Chromium + cookies (+ желательно residential proxy).
+**Статус прогонов в cloud-среде:**
+- **Booking.com** — работает через UI reviews + GraphQL `ReviewList` (`hotelId=314504`). Снято **1313** текстовых отзывов.
+- **TripAdvisor** — всё ещё captcha на datacenter IP; нужен `--headed` и/или residential proxy локально.
 
 ## Установка
 

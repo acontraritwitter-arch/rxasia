@@ -34,3 +34,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Playwright session cookies
+**/storage_*.json
+playwright_run_*.json
+debug_*.html
+debug_*.txt
