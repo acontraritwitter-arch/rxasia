@@ -9,8 +9,10 @@
 - onlinetours.ru: 11
 - tripadvisor.co.uk: 10
 
-## Недоступно автоматически
-- Booking.com (~2000+), полная лента TripAdvisor (~1600–1800), Google — антибот/captcha.
+## Booking / TripAdvisor
+HTTP из датацентра режется антиботом (JS-challenge / captcha).  
+Инструкция по Playwright-обходу: [`PLAYWRIGHT.md`](./PLAYWRIGHT.md)  
+Скрипт: `scripts/scrape_booking_tripadvisor_playwright.py`
 
 ## Сопутствующие файлы
 - `reviews.all_sources.json` — полный корпус
